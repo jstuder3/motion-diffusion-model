@@ -1,0 +1,46 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: in_betweening",
+            "type": "python",
+            "request": "launch",
+            "module": "sampe.edit",
+            "justMyCode": true,
+            "args": [
+                "--model_path", "./save/training_with_keyframe_loss/model000001000.pt",
+                "--edit_mode", "in_between"
+            ]
+            //full command: python -m sample.edit --model_path ./save/humanml_trans_enc_512/model000001000.pt --edit_mode in_between
+        },
+        {
+            "name": "Python: train.train_mdm Module",
+            "type": "python",
+            "request": "launch",
+            //"program": "${workspaceFolder}/train/train_mdm.py",  // This will point to the Python executable
+            "module": "train.train_mdm",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--save_dir",
+                "save/my_keyframe_conditioning",
+                "--dataset",
+                "humanact12",
+                "--cond_mask_prob",
+                "0",
+                "--lambda_rcxyz",
+                "1",
+                "--lambda_vel",
+                "1",
+                "--lambda_fc",
+                "1",
+                "--unconstrained",
+                "--overwrite",
+                "--log_interval",
+                "10",
+                "--batch_size", "8",
+            ]
+            //full command: python -m train.train_mdm --save_dir save/my_keyframe_conditioning --dataset humanact12 --cond_mask_prob 0 --lambda_rcxyz 1 --lambda_vel 1 --lambda_fc 1  --unconstrained --train_platform_type --overwrite --log_interval 10 --batch_size 8
+        }
+    ]
+}

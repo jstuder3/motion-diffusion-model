@@ -230,7 +230,7 @@ class GaussianDiffusion:
         )
         return mean, variance, log_variance
 
-    def q_sample(self, x_start, t, noise=None):
+    def q_sample(self, x_start, t, noise=None, mask=None):
         """
         Diffuse the dataset for a given number of diffusion steps.
 
@@ -244,11 +244,22 @@ class GaussianDiffusion:
         if noise is None:
             noise = th.randn_like(x_start)
         assert noise.shape == x_start.shape
-        return (
-            _extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
-            + _extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
-            * noise
-        )
+
+        cache = (_extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start 
+               + _extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
+               * noise)
+        
+        #Justin: don't noise up first and last frame
+        cache[:, :, :, 0] = x_start[:, :, :, 0] #[batch_size, njoints, nfeatures, max_frames]
+
+        if mask != None:
+            lastFrame = (mask.sum(axis=3) - 1).flatten() #-1 to match index representation
+            rows = torch.arange(lastFrame.shape[0]).to(lastFrame.get_device()) #slicing trickery: specify all rows so we get exactly one frame of every row (note that this behaves differently from ":")
+            cache[rows, :, :, lastFrame] = x_start[rows, :, :, lastFrame]
+        else:
+            cache[:, :, :, -1] = x_start[:, :, :, -1]
+
+        return cache
 
     def q_posterior_mean_variance(self, x_start, x_t, t):
         """
@@ -1251,7 +1262,7 @@ class GaussianDiffusion:
             model_kwargs = {}
         if noise is None:
             noise = th.randn_like(x_start)
-        x_t = self.q_sample(x_start, t, noise=noise)
+        x_t = self.q_sample(x_start, t, noise=noise, mask=mask)
 
         terms = {}
 
@@ -1341,10 +1352,20 @@ class GaussianDiffusion:
                                                   model_output_vel[:, :-1, :, :],
                                                   mask[:, :, :, 1:])  # mean_flat((target_vel - model_output_vel) ** 2)
 
-            terms["loss"] = terms["rot_mse"] + terms.get('vb', 0.) +\
-                            (self.lambda_vel * terms.get('vel_mse', 0.)) +\
+            #Justin: keyframe deviation loss
+            lambda_kdl = 5
+            keyframe_mask = torch.zeros_like(mask)
+            keyframe_mask[:, :, :, 0] = 1
+
+            lastFrame = mask.sum(axis=3) - 1
+            keyframe_mask[:, :, :, lastFrame] = 1
+            terms["keyframe_deviation_loss"] = self.masked_l2(target, model_output, keyframe_mask)
+
+            terms["loss"] = terms["rot_mse"] + terms.get('vb', 0.) + \
+                            (self.lambda_vel * terms.get('vel_mse', 0.)) + \
                             (self.lambda_rcxyz * terms.get('rcxyz_mse', 0.)) + \
-                            (self.lambda_fc * terms.get('fc', 0.))
+                            (self.lambda_fc * terms.get('fc', 0.)) + \
+                            (lambda_kdl * terms.get("keyframe_deviation_loss"))
 
         else:
             raise NotImplementedError(self.loss_type)

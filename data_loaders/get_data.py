@@ -37,6 +37,13 @@ def get_dataset(name, num_frames, split='train', hml_mode='train'):
         dataset = DATA(split=split, num_frames=num_frames, mode=hml_mode)
     else:
         dataset = DATA(split=split, num_frames=num_frames)
+
+    #Justin: remember to remove subsampling later
+    from torch.utils.data import Subset
+    subsetsize = 8
+    dataset = Subset(dataset, list(range(subsetsize)))
+    dataset.dataname = "humanact12"
+
     return dataset
 
 

@@ -15,7 +15,14 @@ class HumanAct12Poses(Dataset):
         pkldatafilepath = os.path.join(datapath, "humanact12poses.pkl")
         data = pkl.load(open(pkldatafilepath, "rb"))
 
-        self._pose = [x for x in data["poses"]]
+        #Justin: remember to remove the [:10] to use the full dataset again
+        #subsetsize = 1
+        #data['poses'] = data['poses'][:subsetsize]
+        #data['oldposes'] = data['oldposes'][:subsetsize]
+        #data['joints3D'] = data['joints3D'][:subsetsize]
+        #data['y'] = data['y'][:subsetsize]
+
+        self._pose = [x for x in data["poses"]] #[1190, nframes, njoints, nfeatures]
         self._num_frames_in_video = [p.shape[0] for p in self._pose]
         self._joints = [x for x in data["joints3D"]]
 
