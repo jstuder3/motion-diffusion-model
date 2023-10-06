@@ -97,17 +97,43 @@ def main():
             collate_args = [dict(arg, action=one_action, action_text=one_action_text) for
                             arg, one_action, one_action_text in zip(collate_args, action, action_text)]
         _, model_kwargs = collate(collate_args)
-
+    
     all_motions = []
     all_lengths = []
     all_text = []
+
+    ###Justin: store device
+    device = dist_util.dev()
+    ###
 
     for rep_i in range(args.num_repetitions):
         print(f'### Sampling [repetitions #{rep_i}]')
 
         # add CFG scale to batch
         if args.guidance_param != 1:
-            model_kwargs['y']['scale'] = torch.ones(args.batch_size, device=dist_util.dev()) * args.guidance_param
+            model_kwargs['y']['scale'] = torch.ones(args.batch_size, device=device) * args.guidance_param
+
+        ###Justin: insert unnoised keyframes into initial noise data
+        noise = torch.randn((args.batch_size, model.njoints, model.nfeats, max_frames), device=device)
+        from tqdm import tqdm
+        for motion, cond in tqdm(data):
+            #move to cuda
+            motion = motion.to(device)
+            cond['y'] = {key: val.to(device) if torch.is_tensor(val) else val for key, val in cond['y'].items()}
+
+            mask = cond['y']['mask']
+
+            if mask != None:
+                lastFrame = (mask.sum(axis=3) - 1).flatten() #-1 to match index representation
+                rows = torch.arange(lastFrame.shape[0]).to(lastFrame.get_device()) #slicing trickery: specify all rows so we get exactly one frame of every row (note that this behaves differently from ":")
+                noise[rows, :, :, lastFrame] = motion[rows, :, :, lastFrame]
+            else:
+                noise[:, :, :, -1] = motion[:, :, :, -1]
+
+            break
+
+        ###
+
 
         sample_fn = diffusion.p_sample_loop
 
@@ -121,7 +147,9 @@ def main():
             init_image=None,
             progress=True,
             dump_steps=None,
-            noise=None,
+            ###Justin: changed assignment from noise=None to noise=noise
+            noise=noise,
+            ###
             const_noise=False,
         )
 
@@ -247,7 +275,10 @@ def load_dataset(args, max_frames, n_frames):
     data = get_dataset_loader(name=args.dataset,
                               batch_size=args.batch_size,
                               num_frames=max_frames,
-                              split='test',
+                              #split='test',
+                              ###Justin: replaced 'test' with 'train' split
+                              split='train',
+                              ###
                               hml_mode='text_only')
     if args.dataset in ['kit', 'humanml']:
         data.dataset.t2m_dataset.fixed_length = n_frames

@@ -2,14 +2,28 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Generate unconditionally",
+            "type": "python",
+            "request": "launch",
+            "module": "sample.generate",
+            "justMyCode": true,
+            "args":[
+                "--model_path", "./save/training_with_keyframe_loss_7k_steps_trained/model000007000.pt",
+                "--num_samples", "8",
+                "--num_repetitions", "3",
+            ]
+        },
+        {
             "name": "Python: in_betweening",
             "type": "python",
             "request": "launch",
             "module": "sampe.edit",
             "justMyCode": true,
             "args": [
-                "--model_path", "./save/training_with_keyframe_loss/model000001000.pt",
-                "--edit_mode", "in_between"
+                "--model_path",
+                "./save/training_with_keyframe_loss/model000001000.pt",
+                "--edit_mode",
+                "in_between"
             ]
             //full command: python -m sample.edit --model_path ./save/humanml_trans_enc_512/model000001000.pt --edit_mode in_between
         },
@@ -38,7 +52,8 @@
                 "--overwrite",
                 "--log_interval",
                 "10",
-                "--batch_size", "8",
+                "--batch_size",
+                "4",
             ]
             //full command: python -m train.train_mdm --save_dir save/my_keyframe_conditioning --dataset humanact12 --cond_mask_prob 0 --lambda_rcxyz 1 --lambda_vel 1 --lambda_fc 1  --unconstrained --train_platform_type --overwrite --log_interval 10 --batch_size 8
         }

@@ -704,6 +704,7 @@ class GaussianDiffusion:
         else:
             img = th.randn(*shape, device=device)
 
+
         if skip_timesteps and init_image is None:
             init_image = th.zeros_like(img)
 
@@ -718,6 +719,10 @@ class GaussianDiffusion:
             from tqdm.auto import tqdm
 
             indices = tqdm(indices)
+
+        ###Justin: added mask extraction
+        mask = model_kwargs['y']['mask'].to(device)
+        ###
 
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
@@ -737,6 +742,17 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                     const_noise=const_noise,
                 )
+            
+                ###Justin: replace first and last frame during sampling with the original value, so we don't accumulate errors
+                out["sample"][:, :, :, 0] = img[:, :, :, 0]
+                if mask != None:
+                    lastFrame = (mask.sum(axis=3) - 1).flatten() #-1 to match index representation
+                    rows = torch.arange(lastFrame.shape[0]).to(lastFrame.get_device()) #slicing trickery: specify all rows so we get exactly one frame of every row (note that this behaves differently from ":")
+                    out["sample"][rows, :, :, lastFrame] = img[rows, :, :, lastFrame]
+                else:
+                    out["sample"][:, :, :, -1] = img[:, :, :, -1]
+                ###
+
                 yield out
                 img = out["sample"]
 

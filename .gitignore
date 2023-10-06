@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Ignore datasets
+dataset/HumanAct12Poses/
+dataset/KIT-ML
+dataset/HumanML3D
+save/
