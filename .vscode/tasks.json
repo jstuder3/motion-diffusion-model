@@ -1,0 +1,101 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Generate unconditionally",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-m", "sample.generate",
+                "--model_path", "./save/keyframe_conditioning_1100_samples/model000200000.pt",
+                "--num_samples", "8",
+                "--num_repetitions", "3"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "in_betweening",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-m", "sampe.edit",
+                "--model_path", "./save/training_with_keyframe_loss/model000001000.pt",
+                "--edit_mode", "in_between"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "Nohup train.train_mdm Module",
+            "type": "shell",
+            "command": "nohup python",
+            "args": [
+                "-m", "train.train_mdm",
+                "--save_dir", "save/keyframe_conditioning_1100_samples",
+                "--dataset", "humanact12",
+                "--cond_mask_prob", "0",
+                "--lambda_rcxyz", "1",
+                "--lambda_vel", "1",
+                "--lambda_fc", "5",
+                "--unconstrained",
+                "--overwrite",
+                "--log_interval", "10",
+                "--batch_size", "64",
+                "--save_interval", "2500",
+                "--num_steps", "200000",
+                "--train_platform_type", "TensorboardPlatform",
+                "&"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "new"
+            },
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            }
+        }
+        {
+            "label": "train.train_mdm Module",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-m", "train.train_mdm",
+                "--save_dir", "save/keyframe_conditioning_1100_samples",
+                "--dataset", "humanact12",
+                "--cond_mask_prob", "0",
+                "--lambda_rcxyz", "1",
+                "--lambda_vel", "1",
+                "--lambda_fc", "2",
+                "--unconstrained",
+                "--overwrite",
+                "--log_interval", "10",
+                "--batch_size", "64",
+                "--save_interval", "2500",
+                "--num_steps", "200000",
+                "--train_platform_type", "TensorboardPlatform",
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "new"
+            },
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            }
+        }
+    ]
+}

@@ -1368,8 +1368,8 @@ class GaussianDiffusion:
                                                   model_output_vel[:, :-1, :, :],
                                                   mask[:, :, :, 1:])  # mean_flat((target_vel - model_output_vel) ** 2)
 
-            #Justin: keyframe deviation loss
-            lambda_kdl = 5
+            #Justin: keyframe deviation loss (position of keyframes)
+            lambda_kdl = 10
             keyframe_mask = torch.zeros_like(mask)
             keyframe_mask[:, :, :, 0] = 1
 
@@ -1377,11 +1377,21 @@ class GaussianDiffusion:
             keyframe_mask[:, :, :, lastFrame] = 1
             terms["keyframe_deviation_loss"] = self.masked_l2(target, model_output, keyframe_mask)
 
+            ###Justin: keyframe continuity loss (velocity around keyframes)
+            lambda_kcl = 10
+            target_vel = (target[..., 1:] - target[..., :-1])
+            model_output_vel = (model_output[..., 1:] - model_output[..., :-1])
+            terms["keyframe_continuity_loss"] = self.masked_l2(target_vel[:, :-1, :, :], # Remove last joint, is the root location!
+                                                               model_output_vel[:, :-1, :, :],
+                                                               keyframe_mask[:, :, :, 1:])
+
+            ###Justin: some custom loss terms
             terms["loss"] = terms["rot_mse"] + terms.get('vb', 0.) + \
                             (self.lambda_vel * terms.get('vel_mse', 0.)) + \
                             (self.lambda_rcxyz * terms.get('rcxyz_mse', 0.)) + \
                             (self.lambda_fc * terms.get('fc', 0.)) + \
-                            (lambda_kdl * terms.get("keyframe_deviation_loss"))
+                            (lambda_kdl * terms["keyframe_deviation_loss"]) + \
+                            (lambda_kcl * terms["keyframe_continuity_loss"])
 
         else:
             raise NotImplementedError(self.loss_type)

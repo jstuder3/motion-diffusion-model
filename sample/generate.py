@@ -84,7 +84,8 @@ def main():
 
     if is_using_data:
         iterator = iter(data)
-        _, model_kwargs = next(iterator)
+        input_motions, model_kwargs = next(iterator)
+        input_motions = input_motions.to(dist_util.dev())
     else:
         collate_args = [{'inp': torch.zeros(n_frames), 'tokens': None, 'lengths': n_frames}] * args.num_samples
         is_t2m = any([args.input_text, args.text_prompt])
@@ -102,8 +103,22 @@ def main():
     all_lengths = []
     all_text = []
 
-    ###Justin: store device
+    ###Justin: store device, add ground truth
     device = dist_util.dev()
+
+    input_motions_pre_transform = input_motions
+
+    #need to do some data transform to match what the model outputs (copied from below)
+    rot2xyz_pose_rep = 'xyz' if model.data_rep in ['xyz', 'hml_vec'] else model.data_rep
+    rot2xyz_mask = None if rot2xyz_pose_rep == 'xyz' else model_kwargs['y']['mask'].reshape(args.batch_size, n_frames).bool()
+    input_motions = model.rot2xyz(x=input_motions, mask=rot2xyz_mask, pose_rep=rot2xyz_pose_rep, glob=True, translation=True,
+                            jointstype='smpl', vertstrans=True, betas=None, beta=0, glob_rot=None,
+                            get_rotations_back=False)
+
+    all_text += ['INPUT MOTION']*input_motions.shape[0]
+    all_motions.append(input_motions.cpu().numpy())
+    all_lengths.append(model_kwargs['y']['lengths'].cpu().numpy())
+
     ###
 
     for rep_i in range(args.num_repetitions):
@@ -115,22 +130,22 @@ def main():
 
         ###Justin: insert unnoised keyframes into initial noise data
         noise = torch.randn((args.batch_size, model.njoints, model.nfeats, max_frames), device=device)
-        from tqdm import tqdm
-        for motion, cond in tqdm(data):
-            #move to cuda
-            motion = motion.to(device)
-            cond['y'] = {key: val.to(device) if torch.is_tensor(val) else val for key, val in cond['y'].items()}
+        motion = input_motions_pre_transform
+        cond = model_kwargs
+        #move to cuda
+        motion = motion.to(device)
+        cond['y'] = {key: val.to(device) if torch.is_tensor(val) else val for key, val in cond['y'].items()}
 
-            mask = cond['y']['mask']
+        mask = cond['y']['mask']
 
-            if mask != None:
-                lastFrame = (mask.sum(axis=3) - 1).flatten() #-1 to match index representation
-                rows = torch.arange(lastFrame.shape[0]).to(lastFrame.get_device()) #slicing trickery: specify all rows so we get exactly one frame of every row (note that this behaves differently from ":")
-                noise[rows, :, :, lastFrame] = motion[rows, :, :, lastFrame]
-            else:
-                noise[:, :, :, -1] = motion[:, :, :, -1]
+        noise[:, :, :, 0] = motion[:, :, :, 0]
 
-            break
+        if mask != None:
+            lastFrame = (mask.sum(axis=3) - 1).flatten() #-1 to match index representation
+            rows = torch.arange(lastFrame.shape[0]).to(lastFrame.get_device()) #slicing trickery: specify all rows so we get exactly one frame of every row (note that this behaves differently from ":")
+            noise[rows, :, :, lastFrame] = motion[rows, :, :, lastFrame]
+        else:
+            noise[:, :, :, -1] = motion[:, :, :, -1]
 
         ###
 
@@ -153,6 +168,17 @@ def main():
             const_noise=False,
         )
 
+        ###Justin: replace the denoised keyframes after the last denoising step as well (note that this reuses the stuff from above)
+        sample[:, :, :, 0] = motion[:, :, :, 0]
+
+        if mask != None:
+            lastFrame = (mask.sum(axis=3) - 1).flatten() #-1 to match index representation
+            rows = torch.arange(lastFrame.shape[0]).to(lastFrame.get_device()) #slicing trickery: specify all rows so we get exactly one frame of every row (note that this behaves differently from ":")
+            sample[rows, :, :, lastFrame] = motion[rows, :, :, lastFrame]
+        else:
+            sample[:, :, :, -1] = motion[:, :, :, -1]
+        ###
+
         # Recover XYZ *positions* from HumanML3D vector representation
         if model.data_rep == 'hml_vec':
             n_joints = 22 if sample.shape[1] == 263 else 21
@@ -167,7 +193,7 @@ def main():
                                get_rotations_back=False)
 
         if args.unconstrained:
-            all_text += ['unconstrained'] * args.num_samples
+            all_text += [f'unconstrained_sample_{rep_i}'] * args.num_samples
         else:
             text_key = 'text' if 'text' in model_kwargs['y'] else 'action_text'
             all_text += model_kwargs['y'][text_key]
@@ -178,10 +204,10 @@ def main():
         print(f"created {len(all_motions) * args.batch_size} samples")
 
 
-    all_motions = np.concatenate(all_motions, axis=0)
-    all_motions = all_motions[:total_num_samples]  # [bs, njoints, 6, seqlen]
-    all_text = all_text[:total_num_samples]
-    all_lengths = np.concatenate(all_lengths, axis=0)[:total_num_samples]
+    all_motions = list(np.concatenate(all_motions, axis=0))
+    all_motions = all_motions[:total_num_samples+input_motions.shape[0]]  # [bs, njoints, 6, seqlen]
+    all_text = all_text[:total_num_samples+input_motions.shape[0]]
+    all_lengths = np.concatenate(all_lengths, axis=0)[:total_num_samples+input_motions.shape[0]]
 
     if os.path.exists(out_path):
         shutil.rmtree(out_path)
@@ -222,6 +248,50 @@ def main():
         sample_files = save_multiple_samples(args, out_path,
                                                row_print_template, all_print_template, row_file_template, all_file_template,
                                                caption, num_samples_in_out_file, rep_files, sample_files, sample_i)
+
+
+    ###Justin: copied over from edit.py
+    #gt_frames_per_sample = [0, max_frames-1]
+    ## Recover XYZ *positions* from HumanML3D vector representation
+    # if model.data_rep == 'hml_vec':
+    #     input_motions = data.dataset.t2m_dataset.inv_transform(input_motions.cpu().permute(0, 2, 3, 1)).float()
+    #     input_motions = recover_from_ric(input_motions, n_joints)
+    #     input_motions = input_motions.view(-1, *input_motions.shape[2:]).permute(0, 2, 3, 1).cpu().numpy()
+
+    # for sample_i in range(args.num_samples):
+    #     caption = 'Input Motion'
+    #     length = model_kwargs['y']['lengths'][sample_i]
+    #     motion = input_motions[sample_i].permute(2, 0, 1)[:length]
+    #     save_file = 'input_motion{:02d}.mp4'.format(sample_i)
+    #     animation_save_path = os.path.join(out_path, save_file)
+    #     rep_files = [animation_save_path]
+    #     print(f'[({sample_i}) "{caption}" | -> {save_file}]')
+    #     plot_3d_motion(animation_save_path, skeleton, motion, title=caption,
+    #                    dataset=args.dataset, fps=fps, vis_mode='gt',
+    #                    gt_frames=gt_frames_per_sample)
+    #     for rep_i in range(args.num_repetitions):
+    #         caption = all_text[rep_i*args.batch_size + sample_i]
+    #         if caption == '':
+    #             caption = 'Edit [{}] unconditioned'.format(args.edit_mode)
+    #         else:
+    #             caption = 'Edit [{}]: {}'.format(args.edit_mode, caption)
+    #         length = all_lengths[rep_i*args.batch_size + sample_i]
+    #         motion = all_motions[rep_i*args.batch_size + sample_i].transpose(2, 0, 1)[:length]
+    #         save_file = 'sample{:02d}_rep{:02d}.mp4'.format(sample_i, rep_i)
+    #         animation_save_path = os.path.join(out_path, save_file)
+    #         rep_files.append(animation_save_path)
+    #         print(f'[({sample_i}) "{caption}" | Rep #{rep_i} | -> {save_file}]')
+    #         plot_3d_motion(animation_save_path, skeleton, motion, title=caption,
+    #                        dataset=args.dataset, fps=fps, vis_mode=args.edit_mode,
+    #                        gt_frames= gt_frames_per_sample)
+    #         # Credit for visualization: https://github.com/EricGuo5513/text-to-motion
+
+    #     all_rep_save_file = os.path.join(out_path, 'sample{:02d}.mp4'.format(sample_i))
+    #     ffmpeg_rep_files = [f' -i {f} ' for f in rep_files]
+    #     hstack_args = f' -filter_complex hstack=inputs={args.num_repetitions+1}'
+    #     ffmpeg_rep_cmd = f'ffmpeg -y -loglevel warning ' + ''.join(ffmpeg_rep_files) + f'{hstack_args} {all_rep_save_file}'
+    #     os.system(ffmpeg_rep_cmd)
+    #     print(f'[({sample_i}) "{caption}" | all repetitions | -> {all_rep_save_file}]')
 
     abs_path = os.path.abspath(out_path)
     print(f'[Done] Results are at [{abs_path}]')

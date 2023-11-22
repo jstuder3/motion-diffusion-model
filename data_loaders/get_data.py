@@ -40,8 +40,10 @@ def get_dataset(name, num_frames, split='train', hml_mode='train'):
 
     #Justin: remember to remove subsampling later
     from torch.utils.data import Subset
-    subsetsize = 5
-    dataset = Subset(dataset, list(range(subsetsize)))
+    subset_begin = 0 #put this to 1101 tomorrow
+    subset_end = 1100 #note: put this to 1190 tomorrow
+
+    dataset = Subset(dataset, list(range(subset_begin, subset_end)))
     dataset.dataname = "humanact12"
 
     return dataset
@@ -52,9 +54,8 @@ def get_dataset_loader(name, batch_size, num_frames, split='train', hml_mode='tr
     collate = get_collate_fn(name, hml_mode)
 
     loader = DataLoader(
-        dataset, batch_size=batch_size, ###Justin: had to set shuffle=False for the overfit run to ensure I use the same sample in training and evaluation
-        shuffle=False,
-        ###
+        dataset, batch_size=batch_size,
+        shuffle=True,
         num_workers=8, drop_last=True, collate_fn=collate
     )
 
